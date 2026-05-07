@@ -1,0 +1,27 @@
+# --- Entornos Virtuales ---
+# No subimos las librerías instaladas, cada sistema (Parrot/Windows) debe tener las suyas
+venv/
+.venv/
+env/
+
+# --- Python / Compilación ---
+# Archivos de caché que genera Python al ejecutarse
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Variables de Entorno / Secretos ---
+# Nunca subas tus llaves o configuraciones privadas
+.env
+
+# --- Específico de Editores (VS Code) ---
+.vscode/
+
+# --- Específico de Sistemas Operativos ---
+# Windows
+Thumbs.db
+desktop.ini
+# macOS
+.DS_Store
+# Linux
+.nfs*
