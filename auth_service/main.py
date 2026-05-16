@@ -1,13 +1,17 @@
 from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from database import init_db, get_session, User, redis_client
-from auth_utils import hash_password, verify_password, create_access_token, decode_token
-from pydantic import BaseModel, Field
+from auth_utils import verify_password, hash_password, create_access_token
+from prometheus_fastapi_instrumentator import Instrumentator 
 
-app = FastAPI(title="Authentication Service", version="1.0.0")
+app = FastAPI(title="Auth Service (Monitored)")
 
-# Inicializar la base de datos al arrancar el contenedor
+# 🚀 CONFIGURACIÓN EXPLÍCITA DEL ENDPOINT
+# Le decimos que mida la app, pero que exponga las métricas en la ruta exacta que buscas
+Instrumentator().instrument(app).expose(app, endpoint="/auth/metrics")
+
 @app.on_event("startup")
 def on_startup():
     init_db()

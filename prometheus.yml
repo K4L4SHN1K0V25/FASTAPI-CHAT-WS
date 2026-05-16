@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s     # Cada 15 segundos pasará a recolectar datos
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 🔐 Raspado del Auth Service
+  - job_name: 'auth-service-metrics'
+    metrics_path: '/auth/metrics'
+    static_configs:
+      - targets: ['auth-service:8001'] # Nombre del servicio en Docker Compose y su puerto interno
+
+  # 💬 Raspado del Chat Backend
+  - job_name: 'chat-backend-metrics'
+    metrics_path: '/chat/metrics'
+    static_configs:
+      - targets: ['chat-backend:8000'] # Nombre del servicio en Docker Compose y su puerto interno

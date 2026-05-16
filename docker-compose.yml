@@ -1,18 +1,59 @@
+version: '3.8'
+
 services:
   redis:
     image: redis:alpine
     container_name: chat_redis
+    ports:
+      - "6380:6379"
 
   auth-service:
-    image: tu_usuario_dockerhub/fastapi-chat-auth:latest
+    build:
+      context: ./auth_service
+      dockerfile: Dockerfile
     container_name: auth_fastapi
+    expose:
+      - "8001"
+    volumes:
+      - ./auth_service:/app
     environment:
       - REDIS_URL=redis://redis:6379
     depends_on:
       - redis
 
-chat-backend:
-    image: tu_usuario_dockerhub/fastapi-chat-backend:latest # 👈 Descarga la imagen pre-compilada
+  chat-backend: # 👈 ¡Ahora sí está alineado perfectamente dentro de 'services'!
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     container_name: chat_fastapi
+    expose:
+      - "8000"
+    depends_on:
+      - redis
+      - auth-service
     environment:
       - REDIS_URL=redis://redis:6379
+
+  nginx-proxy:
+    build:
+      context: ./app/nginx
+      dockerfile: Dockerfile
+    container_name: chat_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./app/frontend:/usr/share/nginx/html
+    depends_on:
+      - chat-backend
+      - auth-service
+
+  prometheus:
+    image: prom/prometheus:v2.51.0 # Versión sólida y ultra ligera
+    container_name: chat_prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml # Inyectamos la configuración
+    ports:
+      - "9090:9090" # Mapeamos el puerto para ver las gráficas desde tu máquina
+    depends_on:
+      - auth-service
+      - chat-backend

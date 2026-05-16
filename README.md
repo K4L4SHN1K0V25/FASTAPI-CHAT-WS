@@ -94,6 +94,24 @@ Para soportar escalabilidad distribuida entre múltiples réplicas de mensajerí
 * **Publish:** Cuando un cliente autenticado envía un mensaje, la instancia de chat que lo recibe lo publica inmediatamente en el canal global `"chat_global"` de Redis.
 * **Subscribe:** Todas las instancias del backend en ejecución se mantienen suscritas al canal de Redis mediante una tarea asíncrona dedicada (`_listen_redis`). Al recibir el impacto de Redis, cada instancia distribuye el mensaje a los WebSockets de sus clientes locales de forma simultánea.
 
+### 🔄 Pipeline de Automatización CI/CD (GitHub Actions & Docker Hub)
+El proyecto implementa un flujo automatizado de **Integración Continua (CI)** y **Despliegue Continuo (CD)** mediante GitHub Actions. Este diseño desacopla por completo la etapa de compilación de la infraestructura de producción, permitiendo que servidores con recursos restringidos (como un VPS de 1 vCore y 1 GB de RAM) desplieguen actualizaciones en microsegundos sin sufrir estrés de hardware.
+
+```text
+[ Git Push ] ──> 🧪 [ Job: Pytest ] ──(Si pasa)──> 🐳 [ Job: Docker Build & Push ] ──> 🚀 [ Docker Hub ]
+```
+
+* **Calidad de Código Automatizada (CI):** Ante cada `git push` o `pull_request` hacia la rama principal, el pipeline levanta un entorno aislado de Python 3.12 en la nube de GitHub, instala las dependencias de testing y ejecuta una suite de pruebas unitarias con **Pytest**. Si alguna prueba criptográfica de hashing o validación de tokens falla, el pipeline se aborta inmediatamente para evitar la propagación de bugs.
+* **Compilación Remota Aislada (CD):** Una vez que las pruebas se completan en verde, el segundo *job* del pipeline inicia sesión de forma segura en **Docker Hub** utilizando secretos encriptados del repositorio (`DOCKERHUB_TOKEN`). Utilizando un optimizador de capas (`setup-buildx-action`), GitHub compila las imágenes de Docker del `chat-backend` y del `auth-service` en paralelo y las publica automáticamente bajo el tag `:latest`.
+* **Despliegue de Producción Ultra-Ligero:** Gracias a esta arquitectura, el servidor VPS no requiere clonar el código fuente, instalar entornos virtuales o compilar binarios. El despliegue se reduce a un comando `docker compose pull` y `up -d` de producción, descargando las imágenes pre-compiladas desde la nube con un consumo de CPU y memoria RAM cercano a cero durante el arranque.
+
+### 📊 Sistema de Monitoreo, Observabilidad y Métricas (Punto 5)
+Para mitigar los riesgos de operar en una infraestructura con restricciones estrictas de hardware (VPS de 1 GB de RAM), se implementó un sistema de observabilidad de alta eficiencia basado en el modelo de raspado de **Prometheus**:
+
+* **Instrumentación Nativa:** Mediante `prometheus-fastapi-instrumentator`, ambos microservicios exponen endpoints asíncronos y aislados (`/auth/metrics` y `/chat/metrics`) que reportan telemetría del proceso en formato OpenMetrics (consumo de memoria residente, hilos de CPU y latencia de red en percentiles).
+* **Métricas de Estado Persistente (WebSockets):** Se diseñó un vector personalizado de tipo `Gauge` (`chat_websockets_active_total`) acoplado al ciclo de vida de los eventos `connect` y `disconnect` del protocolo WebSocket. Esto permite auditar, en tiempo real, la densidad de conexiones concurrentes activas y predecir cuellos de botella por saturación de descriptores de archivos.
+* **Agente de Recolección Centralizado:** Se integró un contenedor dedicado de **Prometheus** configurado con políticas de raspado periódico (`scrape_interval: 15s`). Este agente centraliza el almacenamiento de las series temporales, sirviendo como la fuente de verdad analítica que alimentará los tableros visuales de Grafana y las reglas de alerta del servidor.
+
 ---
 
 ## 🚀 Despliegue con Docker Compose
