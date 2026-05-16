@@ -1,21 +1,60 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>FastAPI Chat</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    </head>
-    <body class="bg-light">
-        <div class="container py-5">
-            <h2>Chat en Tiempo Real</h2>
-            
-            <div id="messages" class="border bg-white p-3 mb-3" style="height: 300px; overflow-y: scroll;"></div>
-            
-            <form action="" onsubmit="sendMessage(event)">
-                <input type="text" class="form-control" id="messageText" autocomplete="off" placeholder="Escribe un mensaje..."/>
-                <button class="btn btn-primary mt-2">Enviar</button>
-            </form>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastAPI Secure Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #121212; color: #e0e0e0; }
+        .card { background-color: #1e1e1e; border: 1px solid #333; }
+        .form-control { background-color: #2d2d2d; border: 1px solid #444; color: #fff; }
+        .form-control:focus { background-color: #3d3d3d; color: #fff; border-color: #0d6efd; box-shadow: none; }
+        #chat-section { display: none; }
+        #messages { height: 400px; overflow-y: auto; background-color: #1a1a1a; border: 1px solid #333; }
+    </style>
+</head>
+<body class="d-flex align-items-center min-vh-100">
+
+    <div class="container">
+        <div id="auth-section" class="row justify-content-center">
+            <div class="col-md-5">
+                <div class="card shadow p-4">
+                    <h3 class="text-center mb-4 text-primary">FastAPI Secure Chat</h3>
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Usuario</label>
+                        <input type="text" id="username" class="form-control" placeholder="Ingresa tu usuario">
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Contraseña</label>
+                        <input type="password" id="password" class="form-control" placeholder="******">
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button onclick="login()" class="btn btn-primary">Iniciar Sesión</button>
+                        <button onclick="register()" class="btn btn-outline-secondary text-light">Registrarse</button>
+                    </div>
+                    <div id="auth-alert" class="alert alert-danger mt-3 d-none" role="alert"></div>
+                </div>
+            </div>
         </div>
 
-        <script src="scriptService.js"></script>
-    </body>
+        <div id="chat-section" class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card shadow p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h4 class="text-success">Sala Global <span id="user-badge" class="badge bg-dark text-info ms-2"></span></h4>
+                        <button onclick="logout()" class="btn btn-sm btn-outline-danger">Salir</button>
+                    </div>
+                    <div id="messages" class="p-3 mb-3 rounded d-flex flex-column gap-2"></div>
+                    <div class="input-group">
+                        <input type="text" id="messageInput" class="form-control" placeholder="Escribe un mensaje seguro..." onkeypress="handleKeyPress(event)">
+                        <button onclick="sendMessage()" class="btn btn-success">Enviar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="scriptService.js"></script>
+</body>
 </html>

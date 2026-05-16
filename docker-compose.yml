@@ -1,11 +1,25 @@
 version: '3.8'
 
 services:
-  redis-server:
+  redis:
     image: redis:alpine
     container_name: chat_redis
     ports:
       - "6380:6379"
+
+  auth-service:
+    build:
+      context: ./auth_service
+      dockerfile: Dockerfile
+    container_name: auth_fastapi
+    expose:
+      - "8001"
+    volumes:
+      - ./auth_service:/app
+    environment:
+      - REDIS_URL=redis://redis:6379 # 👈 Corregido
+    depends_on:
+      - redis
 
   chat-backend:
     build:
@@ -15,9 +29,10 @@ services:
     expose:
       - "8000"
     depends_on:
-      - redis-server
+      - redis
+      - auth-service
     environment:
-      - REDIS_URL=redis://redis-server:6379
+      - REDIS_URL=redis://redis:6379 
 
   nginx-proxy:
     build:
@@ -30,3 +45,4 @@ services:
       - ./app/frontend:/usr/share/nginx/html
     depends_on:
       - chat-backend
+      - auth-service

@@ -5,8 +5,10 @@ Un sistema de chat distribuido y de alto rendimiento construido bajo una arquite
 ## ✨ Características Destacadas
 
 * **Comunicación Bidireccional:** Tiempo real puro y de baja latencia mediante el protocolo WebSocket.
+* **Microservicio de Autenticación Independiente (Auth Service):** Emisión y gestión de **JSON Web Tokens (JWT)** independientes de la lógica del chat.
+* **Seguridad y Criptografía:** Encriptación de contraseñas mediante hash nativo con **Bcrypt** antes del almacenamiento y validaciones robustas de entrada de datos con **Pydantic**.
 * **Arquitectura de Microservicios:** Componentes del sistema completamente independientes y comunicados de forma aislada mediante redes virtuales de Docker.
-* **Proxy Inverso con Nginx:** Unifica el Frontend y el Backend bajo el mismo puerto estándar (`80`). Esto elimina problemas de CORS por completo, oculta los puertos internos expuestos y gestiona el *Handshake* del WebSocket de manera eficiente.
+* **Proxy Inverso con Nginx:** Unifica el Frontend y múltiples microservicios bajo el mismo puerto estándar (`80`). Esto elimina problemas de CORS por completo, oculta los puertos internos expuestos, gestiona el ruteo hacia las rutas de autenticación (`/auth/`) y administra el *Handshake* del WebSocket de manera eficiente.
 * **Resiliencia y Escalabilidad Horizontal (Redis Pub/Sub):**
   * **Con Redis Activo:** Los mensajes se sincronizan globalmente entre múltiples réplicas o instancias del backend, permitiendo escalar la infraestructura horizontalmente de forma masiva.
   * **Modo de Respaldo (*Fallback*):** Si el servidor de Redis experimenta una caída, el sistema aplica una degradación sutil (*Graceful Degradation*) conmutando automáticamente a memoria local sin interrumpir las sesiones activas de los usuarios.
@@ -16,57 +18,87 @@ Un sistema de chat distribuido y de alto rendimiento construido bajo una arquite
 
 ## 🛠️ Tecnologías Utilizadas
 
-* **API Gateway / Web Server:** Nginx (Alpine-based) actuando como Proxy Inverso.
-* **Backend:** Python 3.12+, FastAPI, Uvicorn.
+* **API Gateway / Web Server:** Nginx (Alpine-based) actuando como Proxy Inverso y unificador de tráfico.
+* **Backend Chat Service:** Python 3.12+, FastAPI, Uvicorn, Async Redis Client.
+* **Backend Auth Service:** Python 3.12+, FastAPI, SQLModel (ORM), Bcrypt, PyJWT.
 * **Mensajería / Broker:** Redis (Alpine-based) a través de `redis.asyncio`.
-* **Frontend:** HTML5, CSS3 (Bootstrap 5), Vanilla JavaScript (WebSockets API nativa).
+* **Persistencia de Usuarios:** SQLite (Motor embebido e integrado localmente en el contenedor de autenticación).
+* **Frontend:** HTML5, CSS3 (Bootstrap 5), Vanilla JavaScript (WebSockets API nativa y Fetch API).
 * **Orquestación y Entorno:** Docker y Docker Compose (Totalmente compatible con entornos Windows/WSL2 y Linux).
 
 ---
 
 ## 📂 Estructura del Proyecto
 
-La arquitectura está estructurada para centralizar los contextos de desarrollo y facilitar la portabilidad en la nube:
+La arquitectura está estructurada para independizar los contextos de compilación de cada microservicio:
 
 ```text
 FASTAPI-CHAT-WS/
-├── app/                        # Contexto principal del Backend y Código de la App
-│   ├── main.py                 # Endpoints de la API y manejo de conexiones WebSocket
+├── app/                        # Contexto principal del Chat Service
+│   ├── main.py                 # Endpoints del WebSocket e interceptor de validación JWT
 │   ├── manager.py              # Lógica del ConnectionManager e integración asíncrona de Redis
-│   ├── requirements.txt        # Dependencias del proyecto Python
+│   ├── requirements.txt        # Dependencias del servicio de mensajería (FastAPI, Redis, HTTPX, etc.)
 │   ├── Dockerfile              # Receta de Docker para empaquetar el microservicio de FastAPI
 │   │
 │   ├── frontend/               # Código del cliente estático servido por Nginx
-│   │   ├── index.html          # Interfaz de usuario responsiva
-│   │   ├── app.js              # Manejo del WebSocket con detección dinámica de host
-│   │   └── styles.css          # Estilos personalizados
+│   │   ├── index.html          # Interfaz de usuario con flujos condicionales de Login y Chat
+│   │   └── app.js              # Cliente asíncrono para consumo de API Auth y WebSockets
 │   │
-│   └── nginx/                  # Infraestructura de enrutamiento
-│       ├── default.conf        # Configuración del Reverse Proxy y reglas de WebSockets
+│   └── nginx/                  # Infraestructura de enrutamiento y proxy inverso
+│       ├── default.conf        # Reglas de Nginx para unificar Frontend, Auth y WebSockets
 │       └── Dockerfile          # Receta de Docker para inyectar la configuración en Nginx
 │
-└── docker-compose.yml          # Orquestador maestro de los contenedores locales
+├── auth_service/               # 👈 Contexto principal del Auth Service
+│   ├── main.py                 # Endpoints de Registro, Login y Validación asíncrona de tokens
+│   ├── auth_utils.py           # Funciones criptográficas puras (Bcrypt hashing y firmas JWT)
+│   ├── database.py             # Configuración de SQLModel e inicialización de SQLite
+│   ├── requirements.txt        # Dependencias de autenticación (SQLModel, PyJWT, Bcrypt, etc.)
+│   └── Dockerfile              # Receta de Docker para empaquetar el microservicio de Autenticación
+│
+└── docker-compose.yml          # Orquestador maestro de la red de contenedores locales
 ```
 
 ---
 
 ## 🛡️ Detalles de Arquitectura y Flujo de Datos
 
-### 📡 El Rol de Nginx como Proxy Inverso
+### 📡 El Rol de Nginx como Proxy Inverso e Ingress local
 Nginx se ubica en la frontera del sistema escuchando públicamente en el puerto `80`. Cuando llega una solicitud externa:
 * **Si la ruta solicitada es la raíz `/`:** Sirve de manera estática e inmediata los archivos alojados en la carpeta `frontend/`.
-* **Si la ruta inicia con `/ws/`:** Intercepta la petición HTTP convencional, inyecta las cabeceras requeridas de actualización (`Upgrade` y `Connection "Upgrade"`) y delega el flujo de datos de forma transparente al contenedor de FastAPI en su puerto interno `8000`.
+* **Si la ruta inicia con `/auth/`:** Desvía de manera transparente las peticiones HTTP convencionales (Registro y Login) al contenedor del `auth-service` en su puerto interno `8001`.
+* **Si la ruta inicia con `/ws/`:** Intercepta la petición HTTP convencional, inyecta las cabeceras requeridas de actualización (`Upgrade` y `Connection "Upgrade"`) y delega el flujo de datos al contenedor de `chat-backend` en su puerto interno `8000`.
+
+### 🗄️ Arquitectura de Persistencia Embebida (SQLite & SQLModel)
+A diferencia de las arquitecturas tradicionales que dependen de un servidor de base de datos independiente (como PostgreSQL o MySQL) escuchando en un puerto de red, el `auth-service` implementa una **base de datos embebida** utilizando **SQLite** a través del ORM **SQLModel**.
+
+* **Ciclo de Vida Autónomo (*Auto-Provisioning*):** Al arrancar el contenedor por primera vez, el evento `@app.on_event("startup")` detona la función `init_db()`. Si el archivo físico `users.db` no existe en el entorno, el motor lo crea de forma transparente en ese milisegundo e inyecta la estructura de tablas definida en los modelos de Python, eliminando la necesidad de scripts de migración manuales o configuraciones previas de credenciales.
+* **Persistencia entre Despliegues (Docker Volumes):** Para evitar la naturaleza efímera de los contenedores, la base de datos se almacena en la raíz del contexto de autenticación. Al estar mapeada mediante un volumen de Docker (`./auth_service:/app`), el archivo binario de la base de datos reside de forma segura en el disco duro del host. Esto garantiza que los usuarios registrados persistan intactos incluso tras la destrucción o recompilación completa de las imágenes del clúster.
+* **Rendimiento de Baja Latencia:** Al no existir un socket de red intermedio para consultar los datos, las operaciones de lectura durante el Login o el Registro se ejecutan directamente en memoria/disco local dentro del mismo proceso del microservicio, reduciendo el *overhead* de red a cero.
+
+### 🔐 Flujo Distribuido de Validación JWT (Comunicación Inter-servicio)
+Para asegurar que las conexiones al WebSocket no sean anónimas:
+1. El cliente hace Login en `/auth/login`, recibe un token firmado por el `auth-service` y lo almacena localmente.
+2. Al abrir el WebSocket, el cliente pasa el token como un parámetro query en la URL.
+3. El `chat-backend` intercepta el token y, antes de aceptar la conexión, realiza una **petición HTTP asíncrona interna** con `httpx` hacia `http://auth-service:8001/auth/validate`.
+4. El `auth-service` confirma la validez de la firma digital del JWT y devuelve la identidad del usuario. Si es exitoso, el chat acepta la conexión; de lo contrario, corta el enlace inmediatamente con un código de política de seguridad (`1008`).
+
+### ⚡ Caché Centralizada de Sesiones (Redis Compartido)
+Para optimizar el rendimiento dentro de entornos con hardware restringido (como servidores VPS de 1 vCore y 1 GB de RAM), se migró el modelo de comunicación entre microservicios de un patrón síncrono acoplado por HTTP (`httpx`) a una **arquitectura de persistencia compartida en memoria RAM**.
+
+* **Eliminación del Overhead de Red:** Cuando un usuario inicia sesión con éxito, el `auth-service` genera el JWT y guarda inmediatamente una clave temporal en Redis (`session:<token>` -> `username`) con un tiempo de expiración estricto de 1 hora (`ex=3600`).
+* **Validación en Microsegundos:** Al intentar abrir un canal de WebSocket, el `chat-backend` ya no realiza peticiones HTTP externas hacia el otro contenedor. En su lugar, ejecuta un comando `GET` asíncrono y directo a la memoria compartida de Redis utilizando `redis.asyncio`. Si la clave existe, el acceso se autoriza de inmediato; si expiró o no existe, la conexión se corta bajo la política de seguridad `1008`.
+* **Alta Disponibilidad y Aislamiento:** Este patrón elimina el acoplamiento crítico entre componentes. Si el contenedor del `auth-service` experimenta una caída o se detiene por mantenimiento, los usuarios autenticados previamente pueden seguir conectándose al chat y transmitiendo mensajes en tiempo real de forma ininterrumpida, ya que el estado de la sesión reside de forma independiente en el motor de caché.
 
 ### 🧩 Sincronización Global con Pub/Sub
-Para soportar escalabilidad distribuida:
-* **Publish:** Cuando un cliente envía un mensaje, la instancia del backend que lo recibe lo publica inmediatamente en el canal global `"chat_global"` de Redis.
+Para soportar escalabilidad distribuida entre múltiples réplicas de mensajería:
+* **Publish:** Cuando un cliente autenticado envía un mensaje, la instancia de chat que lo recibe lo publica inmediatamente en el canal global `"chat_global"` de Redis.
 * **Subscribe:** Todas las instancias del backend en ejecución se mantienen suscritas al canal de Redis mediante una tarea asíncrona dedicada (`_listen_redis`). Al recibir el impacto de Redis, cada instancia distribuye el mensaje a los WebSockets de sus clientes locales de forma simultánea.
 
 ---
 
 ## 🚀 Despliegue con Docker Compose
 
-Toda la infraestructura se levanta y se comunica entre sí con un solo comando, abstrayendo por completo la instalación manual de bases de datos o entornos virtuales.
+Toda la infraestructura se levanta y se comunica entre sí con un solo comando, abstrayendo por completo la instalación manual de bases de datos, entornos virtuales locales o configuraciones de red.
 
 ### Prerrequisitos
 * Tener instalado **Docker Desktop** en ejecución.
@@ -90,8 +122,9 @@ Toda la infraestructura se levanta y se comunica entre sí con un solo comando, 
    👉 `http://localhost` (Puerto 80 estándar de internet).
 
 ### Comandos Útiles de Monitoreo y Mantenimiento
-* **Verificar el estado de los contenedores:** `docker-compose ps`
-* **Inspeccionar logs del backend en tiempo real:** `docker logs chat_fastapi -f`
+* **Verificar el estado de los contenedores de la red:** `docker-compose ps`
+* **Inspeccionar logs del servicio de autenticación:** `docker logs auth_fastapi -f`
+* **Inspeccionar logs del chat en tiempo real:** `docker logs chat_fastapi -f`
 * **Detener y limpiar contenedores, redes y volúmenes:** `docker-compose down --rmi local --volumes`
 
 ---
@@ -103,7 +136,8 @@ Camino evolutivo trazado hacia una arquitectura de nivel empresarial:
 * **[✓] Contenerización con Docker:** Dockerfiles independientes optimizados y ligeros.
 * **[✓] Orquestación local:** Docker Compose configurado con inyección de variables de entorno para evitar colisiones de puertos (`REDIS_URL`).
 * **[✓] Implementación de API Gateway:** Inclusión de Nginx como proxy unificador de tráfico.
-* **[ ] Microservicio de Autenticación (Auth Service):** Crear un servicio independiente dedicado exclusivamente a emitir y validar JSON Web Tokens (JWT) para asegurar el acceso al canal de chat.
+* **[✓] Microservicio de Autenticación (Auth Service):** Servicio independiente dedicado exclusivamente a emitir y validar JSON Web Tokens (JWT) y salvaguardar los accesos con validaciones en Pydantic y Bcrypt.
+* **[✓] Comunicación Avanzada de Baja Latencia:** Optimización del acoplamiento entre servicios mediante una caché centralizada de sesiones sobre Redis, reduciendo el overhead de red a cero.
 * **[ ] Orquestación Avanzada con Kubernetes (K8s):** Diseñar los manifiestos de despliegue (`Deployments`, `Services`, `Ingress`) para migrar la arquitectura local hacia un clúster de alta disponibilidad.
 * **[ ] Persistencia de Mensajería:** Integrar una base de datos relacional (PostgreSQL) o NoSQL (MongoDB) con un patrón de repositorio para almacenar de forma permanente el historial del chat.
 

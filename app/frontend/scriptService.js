@@ -1,49 +1,146 @@
-/**
- * Generación de ID de cliente:
- * Usamos Date.now() para generar un ID único basado en el timestamp actual,
- * evitando colisiones si abres varias pestañas.
- */
-const client_id = Date.now();
+let ws = null;
+let currentUsername = "";
 
-/**
- * Inicialización de WebSocket:
- * 'window.location.host' detecta dinámicamente si estás en localhost o en una IP de red (Parrot OS),
- * haciendo que el código sea portable entre entornos de desarrollo.
- */
-// Apuntamos directamente al puerto 8000 donde vive el microservicio del Chat
-const ws = new WebSocket(`ws://${window.location.host}/ws/${client_id}`);
-
-/**
- * Evento onmessage:
- * Se dispara cada vez que el servidor FastAPI envía un mensaje (broadcast).
- */
-ws.onmessage = function (event) {
-  const messages = document.getElementById("messages");
-  const message = document.createElement("div");
-
-  // Estilización simple para cada línea de mensaje
-  message.className = "border-bottom mb-1";
-  message.textContent = event.data; // Insertamos el texto plano para evitar ataques XSS
-
-  messages.appendChild(message);
-
-  // Auto-scroll: Mueve el scroll al final para que el último mensaje siempre sea visible
-  messages.scrollTop = messages.scrollHeight;
+// Al cargar la página, verificar si ya hay una sesión guardada
+window.onload = () => {
+    const token = localStorage.getItem("chat_token");
+    const savedUser = localStorage.getItem("chat_username");
+    if (token && savedUser) {
+        currentUsername = savedUser;
+        showChatSection(token);
+    }
 };
 
-/**
- * Función sendMessage:
- * Envía el texto capturado en el input a través del túnel WebSocket abierto.
- */
-function sendMessage(event) {
-  const input = document.getElementById("messageText");
+// 1. Petición de Registro
+async function register() {
+    const { username, password, alertEl } = getAuthInputs();
+    alertEl.classList.add("d-none");
 
-  // Solo enviamos si el input no está vacío
-  if (input.value.trim() !== "") {
-    ws.send(input.value);
-    input.value = ""; // Limpiamos el campo tras el envío
-  }
+    // 🛑 VALIDACIÓN ANTES DE ENVIAR
+    if (!username || !password) {
+        showAlert("El usuario y la contraseña no pueden estar vacíos.");
+        return;
+    }
 
-  // Evita que el formulario recargue la página (comportamiento por defecto de HTML)
-  event.preventDefault();
+    try {
+        const response = await fetch("/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            showAlert("Usuario creado. ¡Ya puedes iniciar sesión!", "success");
+        } else {
+            showAlert(data.detail || "Error en el registro");
+        }
+    } catch (err) {
+        showAlert("No se pudo conectar con el servidor de autenticación.");
+    }
+}
+
+// 2. Petición de Login (Manda datos como Form URL Encoded tal cual lo espera FastAPI)
+async function login() {
+    const { username, password, alertEl } = getAuthInputs();
+    alertEl.classList.add("d-none");
+
+    // 🛑 VALIDACIÓN ANTES DE ENVIAR
+    if (!username || !password) {
+        showAlert("Por favor ingresa tu usuario y contraseña.");
+        return;
+    }
+
+    const formData = new URLSearchParams();
+    formData.append("username", username);
+    formData.append("password", password);
+
+    try {
+        const response = await fetch("/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formData
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            localStorage.setItem("chat_token", data.access_token);
+            localStorage.setItem("chat_username", username);
+            currentUsername = username;
+            showChatSection(data.access_token);
+        } else {
+            showAlert(data.detail || "Credenciales incorrectas");
+        }
+    } catch (err) {
+        showAlert("Error al intentar iniciar sesión.");
+    }
+}
+
+// 3. Conexión Protegida al WebSocket pasando el Token JWT
+function connectWebSocket(token) {
+    // Detecta dinámicamente si estás en localhost o en IP de red local
+    const host = window.location.host;
+    
+    // Inyectamos el JWT en la URL como parámetro Query seguro
+    ws = new WebSocket(`ws://${host}/ws/${currentUsername}?token=${token}`);
+
+    ws.onmessage = (event) => {
+        const messagesContainer = document.getElementById("messages");
+        const msgDiv = document.createElement("div");
+        msgDiv.className = "p-2 rounded bg-dark text-light border border-secondary align-self-start";
+        msgDiv.style.maxWidth = "80%";
+        msgDiv.textContent = event.data;
+        messagesContainer.appendChild(msgDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    };
+
+    ws.onclose = (event) => {
+        // Si el token falló o fue rechazado por código de política (1008)
+        if (event.code === 1008) {
+            logout();
+            alert("Tu sesión expiró o el token es inválido. Por favor inicia sesión de nuevo.");
+        }
+    };
+}
+
+// 4. Funciones de Control de Interfaz y Envíos
+function sendMessage() {
+    const input = document.getElementById("messageInput");
+    if (input.value.trim() !== "" && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(input.value);
+        input.value = "";
+    }
+}
+
+function handleKeyPress(event) {
+    if (event.key === "Enter") sendMessage();
+}
+
+function showChatSection(token) {
+    document.getElementById("auth-section").style.display = "none";
+    document.getElementById("chat-section").style.display = "block";
+    document.getElementById("user-badge").textContent = `@${currentUsername}`;
+    connectWebSocket(token);
+}
+
+function logout() {
+    if (ws) ws.close();
+    localStorage.clear();
+    document.getElementById("chat-section").style.display = "none";
+    document.getElementById("auth-section").style.display = "flex";
+}
+
+function getAuthInputs() {
+    return {
+        username: document.getElementById("username").value.trim(),
+        password: document.getElementById("password").value,
+        alertEl: document.getElementById("auth-alert")
+    };
+}
+
+function showAlert(text, type = "danger") {
+    const alertEl = document.getElementById("auth-alert");
+    alertEl.className = `alert alert-${type} mt-3`;
+    alertEl.textContent = text;
+    alertEl.classList.remove("d-none");
 }
