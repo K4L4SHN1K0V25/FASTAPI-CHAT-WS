@@ -1,87 +1,111 @@
-# 🚀 FastAPI Real-Time Chat (Híbrido Redis/Local)
+# 🚀 FastAPI Real-Time Chat (Arquitectura Contenerizada con Nginx & Redis)
 
-Un sistema de chat de alto rendimiento construido con **FastAPI** y **WebSockets**. Este proyecto implementa una arquitectura híbrida que soporta escalabilidad horizontal mediante el patrón **Pub/Sub de Redis**, con un sistema de respaldo (*fallback*) automático a memoria local.
+Un sistema de chat distribuido y de alto rendimiento construido bajo una arquitectura de microservicios utilizando **FastAPI**, **WebSockets**, **Redis** y **Nginx**. El proyecto está completamente contenerizado, garantizando un despliegue inmediato, aislamiento de servicios y escalabilidad horizontal nativa sin depender de configuraciones locales del sistema operativo.
 
 ## ✨ Características Destacadas
 
-* **Comunicación Bidireccional:** Tiempo real puro mediante el protocolo WebSocket.
-* **Arquitectura Híbrida (Redis + Local):**
-    * **Con Redis:** Los mensajes se sincronizan globalmente entre múltiples instancias del servidor (escalabilidad horizontal).
-    * **Modo Local:** Si Redis falla o no está presente, el sistema entra en modo de *Graceful Degradation* y sigue funcionando localmente sin interrumpir el servicio.
-* **Asincronismo Total:** Uso de `async/await` y `asyncio.create_task` para gestionar la escucha de mensajes en segundo plano sin bloquear el servidor.
-* **Frontend Minimalista:** Interfaz responsiva construida con Vanilla JS y Bootstrap 5 (sin frameworks pesados).
+* **Comunicación Bidireccional:** Tiempo real puro y de baja latencia mediante el protocolo WebSocket.
+* **Arquitectura de Microservicios:** Componentes del sistema completamente independientes y comunicados de forma aislada mediante redes virtuales de Docker.
+* **Proxy Inverso con Nginx:** Unifica el Frontend y el Backend bajo el mismo puerto estándar (`80`). Esto elimina problemas de CORS por completo, oculta los puertos internos expuestos y gestiona el *Handshake* del WebSocket de manera eficiente.
+* **Resiliencia y Escalabilidad Horizontal (Redis Pub/Sub):**
+  * **Con Redis Activo:** Los mensajes se sincronizan globalmente entre múltiples réplicas o instancias del backend, permitiendo escalar la infraestructura horizontalmente de forma masiva.
+  * **Modo de Respaldo (*Fallback*):** Si el servidor de Redis experimenta una caída, el sistema aplica una degradación sutil (*Graceful Degradation*) conmutando automáticamente a memoria local sin interrumpir las sesiones activas de los usuarios.
+* **Asincronismo Total:** Uso intensivo de la programación asíncrona de Python mediante `async/await` y tareas en segundo plano (`asyncio.create_task`) para escuchar eventos de Redis sin bloquear peticiones entrantes.
 
-
+---
 
 ## 🛠️ Tecnologías Utilizadas
 
+* **API Gateway / Web Server:** Nginx (Alpine-based) actuando como Proxy Inverso.
 * **Backend:** Python 3.12+, FastAPI, Uvicorn.
-* **Mensajería:** Redis (vía `redis.asyncio`).
-* **Frontend:** HTML5, CSS3 (Bootstrap), JavaScript (WebSockets API).
-* **Entorno:** Compatible con Linux (Parrot OS) y Windows.
+* **Mensajería / Broker:** Redis (Alpine-based) a través de `redis.asyncio`.
+* **Frontend:** HTML5, CSS3 (Bootstrap 5), Vanilla JavaScript (WebSockets API nativa).
+* **Orquestación y Entorno:** Docker y Docker Compose (Totalmente compatible con entornos Windows/WSL2 y Linux).
 
-## 🚀 Instalación y Uso
-
-1.  **Clonar el repositorio:**
-    ```bash
-    git clone [https://github.com/tu-usuario/fastapi-chat-ws.git](https://github.com/tu-usuario/fastapi-chat-ws.git)
-    cd fastapi-chat-ws
-    ```
-
-2.  **Configurar el entorno virtual:**
-    ```bash
-    python -m venv venv
-    # En Linux/Parrot:
-    source venv/bin/activate
-    # En Windows:
-    .\venv\Scripts\activate
-    ```
-
-3.  **Instalar dependencias:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Ejecutar el servidor:**
-    ```bash
-    uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    ```
-
-> **Nota:** La aplicación detectará automáticamente si tienes un servidor Redis corriendo en `localhost:6379`. Si no se encuentra, la consola mostrará un aviso y el chat funcionará en modo local.
+---
 
 ## 📂 Estructura del Proyecto
 
+La arquitectura está estructurada para centralizar los contextos de desarrollo y facilitar la portabilidad en la nube:
+
 ```text
-fastapi-chat-ws/
-├── app/
-│   ├── main.py          # Lógica central y ConnectionManager (Pub/Sub)
-│   └── templates/       # Frontend (index.html)
-├── .gitignore           # Exclusión de venv, __pycache__ y archivos de sistema
-├── requirements.txt     # Dependencias (fastapi, uvicorn, redis, websockets)
-└── README.md            # Documentación técnica
+FASTAPI-CHAT-WS/
+├── app/                        # Contexto principal del Backend y Código de la App
+│   ├── main.py                 # Endpoints de la API y manejo de conexiones WebSocket
+│   ├── manager.py              # Lógica del ConnectionManager e integración asíncrona de Redis
+│   ├── requirements.txt        # Dependencias del proyecto Python
+│   ├── Dockerfile              # Receta de Docker para empaquetar el microservicio de FastAPI
+│   │
+│   ├── frontend/               # Código del cliente estático servido por Nginx
+│   │   ├── index.html          # Interfaz de usuario responsiva
+│   │   ├── app.js              # Manejo del WebSocket con detección dinámica de host
+│   │   └── styles.css          # Estilos personalizados
+│   │
+│   └── nginx/                  # Infraestructura de enrutamiento
+│       ├── default.conf        # Configuración del Reverse Proxy y reglas de WebSockets
+│       └── Dockerfile          # Receta de Docker para inyectar la configuración en Nginx
+│
+└── docker-compose.yml          # Orquestador maestro de los contenedores locales
 ```
 
-## 🛡️ Detalles Técnicos y Arquitectura
+---
 
-### 🔄 Gestión de Concurrencia
-El proyecto utiliza el **Event Loop** de Python de manera eficiente. La escucha de Redis no bloquea la recepción de mensajes de los WebSockets gracias a `asyncio.create_task()`. Esto permite que el servidor procese múltiples flujos de datos simultáneamente en un solo hilo.
+## 🛡️ Detalles de Arquitectura y Flujo de Datos
 
-### 📡 Protocolo WebSocket
-A diferencia de las peticiones HTTP convencionales, este sistema mantiene un **handshake** inicial que eleva la conexión a un túnel persistente. Esto reduce drásticamente la latencia y el consumo de recursos al evitar la sobrecarga de cabeceras HTTP en cada mensaje enviado.
+### 📡 El Rol de Nginx como Proxy Inverso
+Nginx se ubica en la frontera del sistema escuchando públicamente en el puerto `80`. Cuando llega una solicitud externa:
+* **Si la ruta solicitada es la raíz `/`:** Sirve de manera estática e inmediata los archivos alojados en la carpeta `frontend/`.
+* **Si la ruta inicia con `/ws/`:** Intercepta la petición HTTP convencional, inyecta las cabeceras requeridas de actualización (`Upgrade` y `Connection "Upgrade"`) y delega el flujo de datos de forma transparente al contenedor de FastAPI en su puerto interno `8000`.
 
-### 🧩 Patrón Pub/Sub (Publish/Subscribe)
-La integración con Redis permite que el sistema escale horizontalmente. 
-1. **Publish:** Cuando un usuario envía un mensaje, el servidor lo publica en un canal de Redis.
-2. **Subscribe:** Todas las instancias del servidor están suscritas a ese canal; al recibir el mensaje de Redis, lo retransmiten a sus respectivos clientes locales.
-
-
-
-## 🛠️ Roadmap / Futuras Mejoras
-Para llevar este proyecto al siguiente nivel, se podrían implementar:
-* **Persistencia de Datos:** Integrar PostgreSQL o MongoDB para almacenar el historial de mensajes.
-* **Autenticación:** Implementar JWT (JSON Web Tokens) para identificar a los usuarios.
-* **Salas de Chat:** Modificar el `ConnectionManager` para soportar canales privados o salas temáticas.
-* **Docker Compose:** Crear un archivo de orquestación para levantar FastAPI y Redis con un solo comando.
+### 🧩 Sincronización Global con Pub/Sub
+Para soportar escalabilidad distribuida:
+* **Publish:** Cuando un cliente envía un mensaje, la instancia del backend que lo recibe lo publica inmediatamente en el canal global `"chat_global"` de Redis.
+* **Subscribe:** Todas las instancias del backend en ejecución se mantienen suscritas al canal de Redis mediante una tarea asíncrona dedicada (`_listen_redis`). Al recibir el impacto de Redis, cada instancia distribuye el mensaje a los WebSockets de sus clientes locales de forma simultánea.
 
 ---
-Desarrollado como proyecto de portafolio para demostrar habilidades en Backend, Sistemas Distribuidos y Programación Asíncrona.
+
+## 🚀 Despliegue con Docker Compose
+
+Toda la infraestructura se levanta y se comunica entre sí con un solo comando, abstrayendo por completo la instalación manual de bases de datos o entornos virtuales.
+
+### Prerrequisitos
+* Tener instalado **Docker Desktop** en ejecución.
+
+### Pasos para iniciar el sistema
+
+1. **Clonar el repositorio:**
+   ```bash
+   git clone [https://github.com/tu-usuario/fastapi-chat-ws.git](https://github.com/tu-usuario/fastapi-chat-ws.git)
+   cd fastapi-chat-ws
+   ```
+
+2. **Levantar e iniciar la infraestructura:**
+   Ejecuta el siguiente comando en la raíz del proyecto para compilar las imágenes locales e iniciar todos los servicios en segundo plano:
+   ```bash
+   docker-compose up --build -d
+   ```
+
+3. **Acceder a la aplicación:**
+   Abre tu navegador web de preferencia e ingresa a:
+   👉 `http://localhost` (Puerto 80 estándar de internet).
+
+### Comandos Útiles de Monitoreo y Mantenimiento
+* **Verificar el estado de los contenedores:** `docker-compose ps`
+* **Inspeccionar logs del backend en tiempo real:** `docker logs chat_fastapi -f`
+* **Detener y limpiar contenedores, redes y volúmenes:** `docker-compose down --rmi local --volumes`
+
+---
+
+## 🛠️ Roadmap / Siguientes Objetivos
+
+Camino evolutivo trazado hacia una arquitectura de nivel empresarial:
+
+* **[✓] Contenerización con Docker:** Dockerfiles independientes optimizados y ligeros.
+* **[✓] Orquestación local:** Docker Compose configurado con inyección de variables de entorno para evitar colisiones de puertos (`REDIS_URL`).
+* **[✓] Implementación de API Gateway:** Inclusión de Nginx como proxy unificador de tráfico.
+* **[ ] Microservicio de Autenticación (Auth Service):** Crear un servicio independiente dedicado exclusivamente a emitir y validar JSON Web Tokens (JWT) para asegurar el acceso al canal de chat.
+* **[ ] Orquestación Avanzada con Kubernetes (K8s):** Diseñar los manifiestos de despliegue (`Deployments`, `Services`, `Ingress`) para migrar la arquitectura local hacia un clúster de alta disponibilidad.
+* **[ ] Persistencia de Mensajería:** Integrar una base de datos relacional (PostgreSQL) o NoSQL (MongoDB) con un patrón de repositorio para almacenar de forma permanente el historial del chat.
+
+---
+Desarrollado como proyecto de portafolio técnico enfocado en Backend de alto rendimiento, Arquitectura de Microservicios, Contenedores y Sistemas Distribuidos Asíncronos.

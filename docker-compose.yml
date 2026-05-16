@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  redis-server:
+    image: redis:alpine
+    container_name: chat_redis
+    ports:
+      - "6380:6379"
+
+  chat-backend:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: chat_fastapi
+    expose:
+      - "8000"
+    depends_on:
+      - redis-server
+    environment:
+      - REDIS_URL=redis://redis-server:6379
+
+  nginx-proxy:
+    build:
+      context: ./app/nginx
+      dockerfile: Dockerfile
+    container_name: chat_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./app/frontend:/usr/share/nginx/html
+    depends_on:
+      - chat-backend

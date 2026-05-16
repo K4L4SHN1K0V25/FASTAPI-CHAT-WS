@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>FastAPI Chat</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-light">
+        <div class="container py-5">
+            <h2>Chat en Tiempo Real</h2>
+            
+            <div id="messages" class="border bg-white p-3 mb-3" style="height: 300px; overflow-y: scroll;"></div>
+            
+            <form action="" onsubmit="sendMessage(event)">
+                <input type="text" class="form-control" id="messageText" autocomplete="off" placeholder="Escribe un mensaje..."/>
+                <button class="btn btn-primary mt-2">Enviar</button>
+            </form>
+        </div>
+
+        <script src="scriptService.js"></script>
+    </body>
+</html>
