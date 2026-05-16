@@ -1,0 +1,45 @@
+name: CI/CD Pipeline
+
+# El pipeline se disparará automáticamente cada vez que hagas un push a la rama principal
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # TRABAJO 1: Integración Continua (Pruebas Automatizadas)
+  test-auth:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Descargar código del repositorio
+      uses: actions/checkout@v4
+
+    - name: Configurar entorno de Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Instalar dependencias del Auth Service
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r auth_service/requirements.txt
+
+    - name: 🧪 Ejecutar pruebas unitarias con Pytest
+      run: |
+        pytest auth_service/test_auth.py
+
+  # TRABAJO 2: Construcción de Imágenes (Solo si las pruebas pasaron con éxito)
+  build-and-package:
+    needs: test-auth # Hace que este trabajo espere a que las pruebas terminen en verde
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Descargar código del repositorio
+      uses: actions/checkout@v4
+
+    - name: Simular preparación de Docker Build
+      run: |
+        echo "🚀 Las pruebas pasaron con éxito."
+        echo "🐳 Aquí es donde GitHub Actions compilará las imágenes sin tocar los recursos de tu VPS."
