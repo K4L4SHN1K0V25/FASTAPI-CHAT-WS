@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-backend-deployment
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chat-backend
+  template:
+    metadata:
+      labels:
+        app: chat-backend
+    spec:
+      containers:
+      - name: chat-backend
+        # 🐳 Tu usuario correcto, listo para descargar de Docker Hub
+        image: k4l4shn1k0v/fastapi-chat-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "100m"     # Pide como base el 10% de un núcleo de CPU
+            memory: "128Mi" # Pide 128 MB de RAM para arrancar
+          limits:
+            cpu: "250m"     # NUNCA puede pasar del 25% de un núcleo
+            memory: "256Mi" # Si pasa de 256 MB de RAM, Kubernetes lo reinicia
+        env:
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: chat-config
+              key: REDIS_URL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-backend
+  namespace: default
+spec:
+  selector:
+    app: chat-backend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

@@ -1,0 +1,20 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chat-backend-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    # 🎯 Tiene que llamarse EXACTAMENTE igual que el Deployment que va a clonar
+    name: chat-backend-deployment
+  minReplicas: 1 # En la noche, cuando no haya nadie, ahorramos recursos
+  maxReplicas: 3 # Si se hace viral, permitimos hasta 3 clones (para cuidar tu PC local)
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50 # 👈 Si pasa del 50% de uso de CPU, ¡clónate!

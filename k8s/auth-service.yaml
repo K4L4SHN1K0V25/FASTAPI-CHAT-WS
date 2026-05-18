@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service-deployment
+  namespace: default
+spec:
+  replicas: 1 # Empezamos con una copia para cuidar tu RAM local
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+      - name: auth-service
+        # 🐳 REEMPLAZA 'tu_usuario_dockerhub' con tu usuario real (ej: k4l4shn1k0v)
+        image: k4l4shn1k0v/fastapi-chat-auth:latest
+        imagePullPolicy: Always # Fuerza a K8s a bajar tu última versión de Docker Hub
+        ports:
+        - containerPort: 8001
+        env:
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: chat-config
+              key: REDIS_URL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: default
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - protocol: TCP
+      port: 8001
+      targetPort: 8001
+  type: ClusterIP

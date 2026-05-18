@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chat-ingress
+  namespace: default
+  # (Borramos la sección de annotations)
+spec:
+  ingressClassName: nginx # 👈 ¡La nueva forma oficial de hacerlo!
+  rules:
+  - http:
+      paths:
+      # 🔐 Todo lo que empiece con /auth va al Auth Service
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8001
+      # 💬 El resto del tráfico va al Chat Backend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: chat-backend
+            port:
+              number: 8000

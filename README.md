@@ -105,13 +105,64 @@ El proyecto implementa un flujo automatizado de **Integración Continua (CI)** y
 * **Compilación Remota Aislada (CD):** Una vez que las pruebas se completan en verde, el segundo *job* del pipeline inicia sesión de forma segura en **Docker Hub** utilizando secretos encriptados del repositorio (`DOCKERHUB_TOKEN`). Utilizando un optimizador de capas (`setup-buildx-action`), GitHub compila las imágenes de Docker del `chat-backend` y del `auth-service` en paralelo y las publica automáticamente bajo el tag `:latest`.
 * **Despliegue de Producción Ultra-Ligero:** Gracias a esta arquitectura, el servidor VPS no requiere clonar el código fuente, instalar entornos virtuales o compilar binarios. El despliegue se reduce a un comando `docker compose pull` y `up -d` de producción, descargando las imágenes pre-compiladas desde la nube con un consumo de CPU y memoria RAM cercano a cero durante el arranque.
 
-### 📊 Sistema de Monitoreo, Observabilidad y Métricas (Punto 5)
+### 📊 Sistema de Monitoreo, Observabilidad y Métricas 
 Para mitigar los riesgos de operar en una infraestructura con restricciones estrictas de hardware (VPS de 1 GB de RAM), se implementó un sistema de observabilidad de alta eficiencia basado en el modelo de raspado de **Prometheus**:
 
 * **Instrumentación Nativa:** Mediante `prometheus-fastapi-instrumentator`, ambos microservicios exponen endpoints asíncronos y aislados (`/auth/metrics` y `/chat/metrics`) que reportan telemetría del proceso en formato OpenMetrics (consumo de memoria residente, hilos de CPU y latencia de red en percentiles).
 * **Métricas de Estado Persistente (WebSockets):** Se diseñó un vector personalizado de tipo `Gauge` (`chat_websockets_active_total`) acoplado al ciclo de vida de los eventos `connect` y `disconnect` del protocolo WebSocket. Esto permite auditar, en tiempo real, la densidad de conexiones concurrentes activas y predecir cuellos de botella por saturación de descriptores de archivos.
 * **Agente de Recolección Centralizado:** Se integró un contenedor dedicado de **Prometheus** configurado con políticas de raspado periódico (`scrape_interval: 15s`). Este agente centraliza el almacenamiento de las series temporales, sirviendo como la fuente de verdad analítica que alimentará los tableros visuales de Grafana y las reglas de alerta del servidor.
 
+### 📈 Diseño Escalable y Resiliente
+Para garantizar la alta disponibilidad del sistema ante picos de tráfico impredecibles, se implementó una estrategia de autoescalado dinámico:
+
+* **Horizontal Pod Autoscaler (HPA):** Se configuró un HPA en el clúster de Kubernetes acoplado al `metrics-server`. Este controlador monitorea el consumo de recursos en tiempo real y escala automáticamente las réplicas del `chat-backend` (de 1 a 3 Pods) si la utilización promedio de CPU supera el 50%.
+* **Gestión de Recursos (Requests & Limits):** Para evitar la inanición de recursos en el clúster (especialmente crítico en entornos con memoria limitada), los contenedores tienen cuotas de hardware estrictamente definidas (Requests: 10% CPU / 128MB RAM, Limits: 25% CPU / 256MB RAM), permitiendo que el HPA calcule los promedios con precisión matemática.
+* **Graceful Degradation:** A nivel de aplicación, si el servicio externo de Redis colapsa, el backend de FastAPI intercepta la excepción de red y realiza un *fallback* automático a un diccionario en memoria (RAM), garantizando que las conexiones WebSocket existentes no se interrumpan.
+
+**🚀 Comandos para desplegar el entorno y simular el autoescalado:**
+
+```bash
+# 1. Iniciar el clúster local y habilitar los módulos de red y métricas
+minikube start --driver=docker
+minikube addons enable ingress
+minikube addons enable metrics-server
+
+# 2. Desplegar toda la infraestructura atómicamente
+kubectl apply -f k8s/
+kubectl get pods -w   # Esperar a que todos estén en estado 'Running'
+
+# 3. Abrir el túnel de red (Ejecutar en una terminal separada)
+minikube tunnel
+
+# 4. Monitorear el consumo y el vigilante HPA en tiempo real
+kubectl top pods
+kubectl get hpa -w
+
+# 5. Prueba de Estrés: Lanzar un bot para bombardear el servidor y forzar la creación de clones
+kubectl run -i --tty atacante --rm --image=busybox --restart=Never -- /bin/sh -c "while true; do wget -q -O /dev/null http://chat-backend:8000/docs; done"
+```
+---
+
+### 🌪️ Ingeniería del Caos y Tolerancia a Fallos
+Para validar la resiliencia del sistema en escenarios de desastre, se implementaron pruebas de Ingeniería del Caos directamente en el clúster:
+
+* **Inyección de Fallos con Chaos Mesh:** Se configuraron experimentos (`PodChaos`) para simular la caída abrupta del nodo de base de datos (`redis-deployment`).
+* **Validación de Self-Healing:** Se documentó la capacidad de Kubernetes para detectar la pérdida del servicio y provisionar una nueva réplica en menos de 3 segundos.
+* **Graceful Degradation Comprobado:** Durante la ventana de inactividad de Redis, la aplicación FastAPI demostró tolerancia a fallos al interceptar la desconexión y realizar un *fallback* automático a estructuras de datos en memoria local, asegurando que las conexiones activas por WebSocket no experimentaran interrupciones (Zero Downtime).
+
+**🔧 Comandos para reproducir el experimento:**
+
+```bash
+# 1. Instalar Chaos Mesh en el clúster usando Helm
+helm repo add chaos-mesh [https://charts.chaos-mesh.org](https://charts.chaos-mesh.org)
+helm install chaos-mesh chaos-mesh/chaos-mesh -n=chaos-mesh --create-namespace --set chaosDaemon.runtime=docker --set chaosDaemon.socketPath=/var/run/docker.sock
+
+# 2. Abrir el monitor de Pods en una terminal para observar la caída y recuperación en vivo
+kubectl get pods -w
+
+# 3. Disparar el manifiesto del caos (desde otra terminal) para asesinar el Pod de Redis
+kubectl apply -f k8s/redis-chaos.yaml
+```
 ---
 
 ## 🚀 Despliegue con Docker Compose
@@ -144,20 +195,6 @@ Toda la infraestructura se levanta y se comunica entre sí con un solo comando, 
 * **Inspeccionar logs del servicio de autenticación:** `docker logs auth_fastapi -f`
 * **Inspeccionar logs del chat en tiempo real:** `docker logs chat_fastapi -f`
 * **Detener y limpiar contenedores, redes y volúmenes:** `docker-compose down --rmi local --volumes`
-
----
-
-## 🛠️ Roadmap / Siguientes Objetivos
-
-Camino evolutivo trazado hacia una arquitectura de nivel empresarial:
-
-* **[✓] Contenerización con Docker:** Dockerfiles independientes optimizados y ligeros.
-* **[✓] Orquestación local:** Docker Compose configurado con inyección de variables de entorno para evitar colisiones de puertos (`REDIS_URL`).
-* **[✓] Implementación de API Gateway:** Inclusión de Nginx como proxy unificador de tráfico.
-* **[✓] Microservicio de Autenticación (Auth Service):** Servicio independiente dedicado exclusivamente a emitir y validar JSON Web Tokens (JWT) y salvaguardar los accesos con validaciones en Pydantic y Bcrypt.
-* **[✓] Comunicación Avanzada de Baja Latencia:** Optimización del acoplamiento entre servicios mediante una caché centralizada de sesiones sobre Redis, reduciendo el overhead de red a cero.
-* **[ ] Orquestación Avanzada con Kubernetes (K8s):** Diseñar los manifiestos de despliegue (`Deployments`, `Services`, `Ingress`) para migrar la arquitectura local hacia un clúster de alta disponibilidad.
-* **[ ] Persistencia de Mensajería:** Integrar una base de datos relacional (PostgreSQL) o NoSQL (MongoDB) con un patrón de repositorio para almacenar de forma permanente el historial del chat.
 
 ---
 Desarrollado como proyecto de portafolio técnico enfocado en Backend de alto rendimiento, Arquitectura de Microservicios, Contenedores y Sistemas Distribuidos Asíncronos.

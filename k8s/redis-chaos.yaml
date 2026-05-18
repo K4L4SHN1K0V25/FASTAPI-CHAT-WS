@@ -1,0 +1,11 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: matar-redis
+  namespace: default
+spec:
+  action: pod-kill
+  mode: one 
+  selector:
+    labelSelectors:
+      app: redis # 🎯 El objetivo sigue siendo el mismo
