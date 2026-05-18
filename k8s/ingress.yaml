@@ -3,13 +3,12 @@ kind: Ingress
 metadata:
   name: chat-ingress
   namespace: default
-  # (Borramos la sección de annotations)
 spec:
-  ingressClassName: nginx # 👈 ¡La nueva forma oficial de hacerlo!
+  ingressClassName: nginx
   rules:
   - http:
       paths:
-      # 🔐 Todo lo que empiece con /auth va al Auth Service
+      # 🔐 1. Todo lo que empiece con /auth va al Auth Service
       - path: /auth
         pathType: Prefix
         backend:
@@ -17,11 +16,30 @@ spec:
             name: auth-service
             port:
               number: 8001
-      # 💬 El resto del tráfico va al Chat Backend
-      - path: /
+
+      # 💬 2. Las conexiones de WebSockets van al Chat Backend
+      - path: /ws
         pathType: Prefix
         backend:
           service:
             name: chat-backend
             port:
               number: 8000
+
+      # 📊 3. Las métricas de Prometheus van al Chat Backend
+      - path: /chat/metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: chat-backend
+            port:
+              number: 8000
+
+      # 🌐 4. La raíz de la app ahora entrega tu interfaz gráfica (HTML/JS)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80
